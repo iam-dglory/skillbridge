@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { stripe, calculatePlatformFee } from '@/lib/stripe'
-import { createServerClient } from '@/lib/supabase/server'
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { cookies } from 'next/headers'
+import type { Database } from '@/types/database'
 
 export async function POST(request: Request) {
   try {
@@ -49,7 +51,7 @@ export async function POST(request: Request) {
     })
 
     // Create a pending order in Supabase
-    const supabase = createServerClient()
+    const supabase = createRouteHandlerClient<Database>({ cookies })
     await supabase.from('orders').insert({
       buyer_id: buyerId,
       listing_id: listingId,
