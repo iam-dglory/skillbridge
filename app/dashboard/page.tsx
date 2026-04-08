@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { COUNTRIES, CATEGORY_META, getMaxPrice } from '@/lib/ppp'
@@ -9,7 +9,7 @@ import type { UserRow, OrderRow, ListingRow } from '@/types/database'
 type OrderWithListing = OrderRow & { listings: Pick<ListingRow, 'title' | 'category'> }
 type ListingWithOrders = ListingRow & { orders: { id: string }[] }
 
-export default function DashboardPage() {
+function DashboardContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const supabase = createClient()
@@ -164,5 +164,13 @@ export default function DashboardPage() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={<div className="text-center py-20 text-gray-400">Loading dashboard...</div>}>
+      <DashboardContent />
+    </Suspense>
   )
 }
