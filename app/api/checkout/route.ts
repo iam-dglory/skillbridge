@@ -1,71 +1,59 @@
-import { NextResponse } from 'next/server'
-import { stripe, calculatePlatformFee } from '@/lib/stripe'
+import { NextRequest, NextResponse } from 'next/server'
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
+import Stripe from 'stripe'
 import type { Database } from '@/types/database'
+import { getMaxPrice } from '@/lib/ppp'
 
-export async function POST(request: Request) {
-  try {
-    const {
-      listingId, listingTitle, sellerId,
-      sellerStripeAccountId, priceUSD, priceLocal,
-      localCurrency, buyerCountry, buyerId,
-    } = await request.json()
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2023-10-16' })
 
-    if (!sellerStripeAccountId) {
-      return NextResponse.json({ error: 'Seller has not connected their payment account yet.' }, { status: 400 })
-    }
+export async function POST(req: NextRequest) {
+  const supabase = createRouteHandlerClient<Database>({ cookies })
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
 
-    // Convert USD amount to cents for Stripe
-    const amountCents = Math.round(priceUSD * 100)
-    const platformFeeCents = calculatePlatformFee(amountCents)
+  const { listingId, country } = await req.json()
+  const { data: listing } = await supabase.from('listings').select('*').eq('id', listingId).single()
+  if (!listing) return NextResponse.json({ error: 'Listing not found' }, { status: 404 })
 
-    // Create Stripe Checkout Session with Connect
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      line_items: [{
-        price_data: {
-          currency: 'usd',
-          product_data: {
-            name: listingTitle,
-            description: `SkillBridge order — ${listingTitle}`,
-          },
-          unit_amount: amountCents,
+  const pricing = getMaxPrice(listing.category, country)
+  const platformFee = Math.round(pricing.local * 100 * 0.10)
+
+  // Get seller's Stripe account
+  const { data: seller } = await supabase.from('users').select('stripe_account_id').eq('id', listing.seller_id).single()
+
+  const baseUrl = process.env.NEXT_PUBLIC_URL ?? 'https://skillbridge.vercel.app'
+
+  const stripeSession = await stripe.checkout.sessions.create({
+    mode: 'payment',
+    currency: pricing.currency.toLowerCase(),
+    line_items: [{
+      price_data: {
+        currency: pricing.currency.toLowerCase(),
+        product_data: {
+          name: listing.title,
+          description: `Delivery in ${listing.delivery_days} days`,
         },
-        quantity: 1,
-      }],
-      mode: 'payment',
+        unit_amount: Math.round(pricing.local * 100),
+      },
+      quantity: 1,
+    }),
+    ...(seller?.stripe_account_id ? {
       payment_intent_data: {
-        application_fee_amount: platformFeeCents,
-        transfer_data: {
-          destination: sellerStripeAccountId,
-        },
-      },
-      success_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?order=success`,
-      cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/listings/${listingId}`,
-      metadata: {
-        listingId, buyerId, sellerId,
-        buyerCountry, priceUSD: priceUSD.toString(),
-        priceLocal: priceLocal.toString(), localCurrency,
-      },
-    })
+        application_fee_amount: platformFee,
+        transfer_data: { destination: seller.stripe_account_id },
+      }
+    } : {}),
+    success_url: `${baseUrl}/dashboard?order=success`,
+    cancel_url: `${baseUrl}/listing/${listingId}?country=${country}`,
+    metadata: {
+      listingId,
+      buyerId: session.user.id,
+      country,
+      priceLocal: pricing.local,
+      currency: pricing.currency,
+    },
+  })
 
-    // Create a pending order in Supabase
-    const supabase = createRouteHandlerClient<Database>({ cookies })
-    await supabase.from('orders').insert({
-      buyer_id: buyerId,
-      listing_id: listingId,
-      buyer_country: buyerCountry,
-      price_usd: priceUSD,
-      price_local: priceLocal,
-      local_currency: localCurrency,
-      stripe_payment_intent_id: session.payment_intent as string,
-      status: 'pending',
-    })
-
-    return NextResponse.json({ url: session.url })
-  } catch (error: any) {
-    console.error('Checkout error:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
+  return NextResponse.json({ url: stripeSession.url })
 }

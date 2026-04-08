@@ -12,9 +12,12 @@ export async function POST(req: NextRequest) {
 
   const { razorpay_order_id, razorpay_payment_id, razorpay_signature, listingId, country } = await req.json()
 
-  // Verify signature
+  // Verify Razorpay signature
   const body = `${razorpay_order_id}|${razorpay_payment_id}`
-  const expectedSig = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET!).update(body).digest('hex')
+  const expectedSig = crypto
+    .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET!)
+    .update(body)
+    .digest('hex')
 
   if (expectedSig !== razorpay_signature) {
     return NextResponse.json({ error: 'Invalid payment signature' }, { status: 400 })
@@ -25,14 +28,15 @@ export async function POST(req: NextRequest) {
 
   const pricing = getMaxPrice(listing.category, country)
 
+  // Insert order using correct column names from schema
   await supabase.from('orders').insert({
     buyer_id: session.user.id,
     listing_id: listingId,
-    country,
+    buyer_country: country,
     price_usd: pricing.usd,
     price_local: pricing.local,
     local_currency: pricing.currency,
-    stripe_session_id: razorpay_payment_id, // reuse field
+    stripe_payment_intent_id: razorpay_payment_id,
     status: 'paid',
   })
 

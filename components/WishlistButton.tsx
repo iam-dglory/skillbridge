@@ -1,25 +1,40 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 export default function WishlistButton({ listingId }: { listingId: string }) {
-  const [saved, setSaved] = useState(false)
+  const [wishlisted, setWishlisted] = useState(false)
   const [loading, setLoading] = useState(false)
+  const supabase = createClient()
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) return
+      supabase
+        .from('wishlists')
+        .select('id')
+        .eq('user_id', session.user.id)
+        .eq('listing_id', listingId)
+        .maybeSingle()
+        .then(({ data }) => setWishlisted(!!data))
+    })
+  }, [listingId])
 
   const toggle = async (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    const supabase = createClient()
     const { data: { session } } = await supabase.auth.getSession()
-    if (!session) { window.location.href = '/login'; return }
+    if (!session) return // silently ignore if not logged in
     setLoading(true)
-    await fetch('/api/wishlist', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ listingId, action: saved ? 'remove' : 'add' }),
-    })
-    setSaved(!saved)
+    if (wishlisted) {
+      await supabase.from('wishlists').delete()
+        .eq('user_id', session.user.id).eq('listing_id', listingId)
+      setWishlisted(false)
+    } else {
+      await supabase.from('wishlists').insert({ user_id: session.user.id, listing_id: listingId })
+      setWishlisted(true)
+    }
     setLoading(false)
   }
 
@@ -27,10 +42,11 @@ export default function WishlistButton({ listingId }: { listingId: string }) {
     <button
       onClick={toggle}
       disabled={loading}
-      title={saved ? 'Remove from wishlist' : 'Save to wishlist'}
-      className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-full bg-white shadow-sm hover:scale-110 transition-transform z-10 border border-gray-100"
+      className="p-2 rounded-xl transition hover:bg-white/10 disabled:opacity-50"
+      title={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+      aria-label="Toggle wishlist"
     >
-      <span className="text-base leading-none">{saved ? '❤️' : '🤍'}</span>
+      <span className="text-xl leading-none">{wishlisted ? '❤️' : '🤍'}</span>
     </button>
   )
 }
