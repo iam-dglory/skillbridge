@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import WishlistButton from './WishlistButton'
 import { getMaxPrice, CATEGORY_META, COUNTRIES } from '@/lib/ppp'
 import type { ListingWithSeller } from '@/types/database'
 
@@ -18,8 +19,9 @@ export default function SkillCard({ listing, userCountry }: Props) {
   return (
     <Link
       href={available ? `/listings/${listing.id}` : '#'}
-      className={`block bg-white rounded-2xl border border-gray-100 overflow-hidden card-hover ${!available ? 'opacity-40 pointer-events-none' : ''}`}
+      className={`block bg-white rounded-2xl border border-gray-100 overflow-hidden card-hover relative ${!available ? 'opacity-40 pointer-events-none' : ''}`}
     >
+      <WishlistButton listingId={listing.id} />
       <div className={`h-1.5 bg-gradient-to-r ${cat.grad}`} />
       <div className="p-5">
         <div className="flex items-start justify-between mb-3">

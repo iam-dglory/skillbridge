@@ -63,6 +63,12 @@ export default function Navbar() {
                 <span>{user.avatar_url || '👤'}</span>
                 <span className="hidden sm:inline">{user.name.split(' ')[0]}</span>
               </Link>
+              {!user.stripe_account_id && (
+                <a href="/connect-stripe"
+                  className="hidden sm:flex items-center gap-1 text-xs font-semibold text-amber-600 bg-amber-50 hover:bg-amber-100 px-3 py-1.5 rounded-lg transition">
+                  💳 Get paid
+                </a>
+              )}
               <button onClick={handleSignOut} className="text-xs text-gray-400 hover:text-red-500 px-2 transition">
                 Sign out
               </button>

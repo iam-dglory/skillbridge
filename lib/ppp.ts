@@ -96,3 +96,26 @@ export function detectCountryFromLocale(): string {
   }
   return 'USA'
 }
+
+/** Detect country from IP address — falls back to locale detection */
+export async function detectCountryFromIP(): Promise<string> {
+  if (typeof window === 'undefined') return 'India'
+  try {
+    const res = await fetch('https://ipapi.co/json/')
+    if (!res.ok) throw new Error('fail')
+    const data = await res.json()
+    const map: Record<string, string> = {
+      'United States': 'USA', 'United Kingdom': 'UK',
+      'Germany': 'Germany', 'France': 'France',
+      'Australia': 'Australia', 'Canada': 'Canada',
+      'Japan': 'Japan', 'United Arab Emirates': 'UAE',
+      'China': 'China', 'India': 'India',
+      'Brazil': 'Brazil', 'Mexico': 'Mexico',
+      'South Africa': 'South Africa', 'Nigeria': 'Nigeria',
+      'Philippines': 'Philippines', 'Indonesia': 'Indonesia',
+    }
+    return map[data.country_name] ?? detectCountryFromLocale()
+  } catch {
+    return detectCountryFromLocale()
+  }
+}

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import SkillCard from '@/components/SkillCard'
 import CountryPicker from '@/components/CountryPicker'
-import { CATEGORY_META, detectCountryFromLocale } from '@/lib/ppp'
+import { CATEGORY_META, detectCountryFromIP } from '@/lib/ppp'
 import type { ListingWithSeller } from '@/types/database'
 
 const CATEGORIES = Object.keys(CATEGORY_META)
@@ -19,7 +19,7 @@ export default function BrowsePage() {
   const [sort, setSort] = useState('featured')
 
   useEffect(() => {
-    setCountry(detectCountryFromLocale())
+    detectCountryFromIP().then(setCountry)
   }, [])
 
   useEffect(() => {
