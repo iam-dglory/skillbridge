@@ -1,124 +1,134 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { COUNTRIES, CATEGORY_META, getMaxPrice, detectCountryFromIP } from '@/lib/ppp'
 import SkillCard from '@/components/SkillCard'
-import CountryPicker from '@/components/CountryPicker'
-import { CATEGORY_META, detectCountryFromIP } from '@/lib/ppp'
-import type { ListingWithSeller } from '@/types/database'
+import type { ListingRow } from '@/types/database'
 
-const CATEGORIES = Object.keys(CATEGORY_META)
+type ListingWithPrice = ListingRow & { price_local: number; local_currency: string }
 
-export default function BrowsePage() {
+const ENGAGEMENT_OPTIONS = ['Freelance', 'Part-time', 'Long-term']
+
+function BrowseContent() {
+  const searchParams = useSearchParams()
+  const router = useRouter()
   const supabase = createClient()
-  const [listings, setListings] = useState<ListingWithSeller[]>([])
-  const [loading, setLoading] = useState(true)
+
   const [country, setCountry] = useState('India')
-  const [category, setCategory] = useState('All')
-  const [query, setQuery] = useState('')
-  const [sort, setSort] = useState('featured')
+  const [category, setCategory] = useState(searchParams.get('category') ?? '')
+  const [engagement, setEngagement] = useState('')
+  const [search, setSearch] = useState('')
+  const [listings, setListings] = useState<ListingWithPrice[]>([])
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    detectCountryFromIP().then(setCountry)
+    detectCountryFromIP().then(c => { if (c) setCountry(c) })
   }, [])
 
   useEffect(() => {
-    fetchListings()
-  }, [country, category])
-
-  async function fetchListings() {
     setLoading(true)
-    let q = supabase
-      .from('listings')
-      .select('*, users(name, country, avatar_url), reviews(rating)')
-      .eq('is_active', true)
-      .contains('available_countries', [country])
+    let q = supabase.from('listings').select('*').eq('is_active', true)
+    if (category) q = q.eq('category', category)
+    if (search) q = q.ilike('title', `%${search}%`)
 
-    if (category !== 'All') q = q.eq('category', category)
+    q.order('featured', { ascending: false }).order('created_at', { ascending: false })
+      .then(({ data }) => {
+        const enriched: ListingWithPrice[] = (data ?? [])
+          .filter(l => l.available_countries.includes(country))
+          .filter(l => !engagement || ((l as any).engagement_types ?? []).includes(engagement))
+          .map(l => {
+            const p = getMaxPrice(l.category, country)
+            return { ...l, price_local: p.local, local_currency: p.currency }
+          })
+        setListings(enriched)
+        setLoading(false)
+      })
+  }, [country, category, engagement, search])
 
-    const { data } = await q
-    setListings((data as ListingWithSeller[]) ?? [])
-    setLoading(false)
-  }
-
-  const filtered = listings
-    .filter(l => {
-      if (!query) return true
-      const q = query.toLowerCase()
-      return l.title.toLowerCase().includes(q) || l.description.toLowerCase().includes(q)
-    })
-    .sort((a, b) => {
-      if (sort === 'featured') return (b.featured ? 1 : 0) - (a.featured ? 1 : 0)
-      if (sort === 'rating') {
-        const ar = a.reviews?.reduce((s, r) => s + r.rating, 0) ?? 0
-        const br = b.reviews?.reduce((s, r) => s + r.rating, 0) ?? 0
-        return br - ar
-      }
-      return 0
-    })
+  const cats = Object.keys(CATEGORY_META)
+  const countryInfo = COUNTRIES[country]
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
+    <div className="min-h-screen pt-20">
+      {/* Header */}
+      <div className="max-w-6xl mx-auto px-4 py-8">
+        <h1 className="text-3xl font-black text-white mb-1">Browse Skills</h1>
+        <p className="text-slate-400 text-sm">Prices shown for <span className="text-violet-300 font-semibold">{countryInfo?.flag} {country}</span></p>
+      </div>
+
       {/* Filters */}
-      <div className="flex flex-wrap gap-3 mb-5">
-        <input
-          type="text"
-          placeholder="🔍  Search skills..."
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          className="flex-1 min-w-52 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-        />
-        <CountryPicker value={country} onChange={setCountry} className="w-44" />
-        <select
-          value={sort}
-          onChange={e => setSort(e.target.value)}
-          className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
-        >
-          <option value="featured">⭐ Featured</option>
-          <option value="rating">★ Top Rated</option>
-        </select>
-      </div>
+      <div className="max-w-6xl mx-auto px-4 mb-8">
+        <div className="glass p-4 flex flex-wrap gap-3">
+          {/* Search */}
+          <input
+            className="input-dark flex-1 min-w-[200px]"
+            placeholder="🔍 Search skills..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
 
-      {/* Category pills */}
-      <div className="flex flex-wrap gap-2 mb-6">
-        {['All', ...CATEGORIES].map(c => (
-          <button
-            key={c}
-            onClick={() => setCategory(c)}
-            className={`px-4 py-1.5 rounded-full text-sm font-semibold transition whitespace-nowrap ${
-              category === c
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'bg-white border border-gray-200 text-gray-600 hover:border-indigo-300'
-            }`}
-          >
-            {c !== 'All' && CATEGORY_META[c].icon + ' '}{c}
+          {/* Country */}
+          <select className="input-dark w-auto min-w-[150px]" value={country} onChange={e => setCountry(e.target.value)}>
+            {Object.entries(COUNTRIES).map(([c, info]) => (
+              <option key={c} value={c} style={{ background: '#1a0533' }}>{info.flag} {c}</option>
+            ))}
+          </select>
+
+          {/* Engagement */}
+          <select className="input-dark w-auto min-w-[150px]" value={engagement} onChange={e => setEngagement(e.target.value)}>
+            <option value="">All Types</option>
+            {ENGAGEMENT_OPTIONS.map(e => <option key={e} value={e} style={{ background: '#1a0533' }}>{e}</option>)}
+          </select>
+        </div>
+
+        {/* Category pills */}
+        <div className="flex gap-2 mt-3 flex-wrap">
+          <button onClick={() => setCategory('')}
+            className={`text-xs px-4 py-1.5 rounded-full font-semibold transition ${!category ? 'bg-violet-600 text-white' : 'bg-white/5 text-slate-300 border border-white/10 hover:border-violet-500/40'}`}>
+            All
           </button>
-        ))}
+          {cats.map(c => (
+            <button key={c} onClick={() => setCategory(category === c ? '' : c)}
+              className={`text-xs px-4 py-1.5 rounded-full font-semibold transition ${category === c ? 'bg-violet-600 text-white' : 'bg-white/5 text-slate-300 border border-white/10 hover:border-violet-500/40'}`}>
+              {CATEGORY_META[c].icon} {c}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <p className="text-sm text-gray-500 mb-5">
-        {loading ? 'Loading...' : `${filtered.length} skills available in ${country}`}
-      </p>
-
-      {loading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="bg-white rounded-2xl border border-gray-100 h-64 animate-pulse" />
-          ))}
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="text-center py-20 text-gray-400 bg-white rounded-2xl border border-gray-100">
-          <div className="text-5xl mb-4">🌐</div>
-          <div className="text-lg font-semibold">No results found</div>
-          <div className="text-sm mt-1">Try a different category or switch countries</div>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {filtered.map(l => (
-            <SkillCard key={l.id} listing={l} userCountry={country} />
-          ))}
-        </div>
-      )}
+      {/* Listings */}
+      <div className="max-w-6xl mx-auto px-4 pb-20">
+        {loading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+            {[...Array(8)].map((_, i) => (
+              <div key={i} className="glass h-64 animate-pulse" />
+            ))}
+          </div>
+        ) : listings.length === 0 ? (
+          <div className="glass text-center py-20">
+            <div className="text-5xl mb-3">🔍</div>
+            <div className="font-bold text-white mb-2">No skills found</div>
+            <div className="text-slate-400 text-sm">Try a different country, category, or search term.</div>
+          </div>
+        ) : (
+          <div>
+            <div className="text-sm text-slate-400 mb-5">{listings.length} skills available in {countryInfo?.flag} {country}</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+              {listings.map(l => <SkillCard key={l.id} listing={l} country={country} />)}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
+  )
+}
+
+export default function BrowsePage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen pt-40 flex items-center justify-center text-violet-300 animate-pulse">Loading skills...</div>}>
+      <BrowseContent />
+    </Suspense>
   )
 }

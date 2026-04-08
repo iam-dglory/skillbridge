@@ -1,70 +1,97 @@
 import Link from 'next/link'
+import { CATEGORY_META } from '@/lib/ppp'
 import WishlistButton from './WishlistButton'
-import { getMaxPrice, CATEGORY_META, COUNTRIES } from '@/lib/ppp'
-import type { ListingWithSeller } from '@/types/database'
+import type { ListingRow } from '@/types/database'
 
-interface Props {
-  listing: ListingWithSeller
-  userCountry: string
+type Props = {
+  listing: ListingRow & { price_local?: number; local_currency?: string }
+  country?: string
 }
 
-export default function SkillCard({ listing, userCountry }: Props) {
-  const pricing   = getMaxPrice(listing.category, userCountry)
-  const cat       = CATEGORY_META[listing.category]
-  const available = listing.available_countries.includes(userCountry)
-  const avgRating = listing.reviews?.length
-    ? (listing.reviews.reduce((s, r) => s + r.rating, 0) / listing.reviews.length).toFixed(1)
-    : null
+const ENGAGE_BADGES: Record<string, { cls: string; label: string }> = {
+  'Freelance':  { cls: 'badge-freelance', label: '⚡ Freelance' },
+  'Part-time':  { cls: 'badge-parttime',  label: '🕐 Part-time' },
+  'Long-term':  { cls: 'badge-longterm',  label: '🔗 Long-term' },
+}
+
+export default function SkillCard({ listing, country }: Props) {
+  const meta = CATEGORY_META[listing.category] ?? { icon: '🔧', grad: 'from-violet-500 to-cyan-500' }
+  const engagements: string[] = (listing as any).engagement_types ?? []
 
   return (
-    <Link
-      href={available ? `/listings/${listing.id}` : '#'}
-      className={`block bg-white rounded-2xl border border-gray-100 overflow-hidden card-hover relative ${!available ? 'opacity-40 pointer-events-none' : ''}`}
-    >
-      <WishlistButton listingId={listing.id} />
-      <div className={`h-1.5 bg-gradient-to-r ${cat.grad}`} />
-      <div className="p-5">
-        <div className="flex items-start justify-between mb-3">
-          <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${cat.bg} ${cat.text}`}>
-            {cat.icon} {listing.category}
-          </span>
-          {listing.featured && (
-            <span className="text-xs bg-amber-50 text-amber-600 font-semibold px-2 py-1 rounded-full">
-              ⭐ Top Pick
-            </span>
-          )}
-        </div>
+    <Link href={`/listing/${listing.id}`} className="block group">
+      <div className="glass-card h-full flex flex-col overflow-hidden">
+        {/* Top gradient bar */}
+        <div className={`h-1.5 w-full bg-gradient-to-r ${meta.grad}`} />
 
-        <h3 className="font-bold text-gray-900 text-sm leading-snug mb-2">{listing.title}</h3>
-        <p className="text-xs text-gray-500 mb-4 line-clamp-2">{listing.description}</p>
-
-        <div className="flex items-center gap-2.5 mb-4">
-          <span className="text-xl">{listing.users?.avatar_url || '👤'}</span>
-          <div className="flex-1 min-w-0">
-            <div className="text-xs font-semibold text-gray-800 truncate">{listing.users?.name}</div>
-            <div className="text-xs text-gray-400">
-              {COUNTRIES[listing.users?.country ?? '']?.flag} {listing.users?.country}
+        <div className="p-5 flex flex-col flex-1">
+          {/* Category icon + wishlist */}
+          <div className="flex items-start justify-between mb-3">
+            <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${meta.grad} flex items-center justify-center text-2xl shrink-0`}>
+              {meta.icon}
+            </div>
+            <div onClick={e => e.preventDefault()}>
+              <WishlistButton listingId={listing.id} />
             </div>
           </div>
-          {avgRating && (
-            <div className="text-right shrink-0">
-              <div className="text-xs text-yellow-500 font-semibold">★ {avgRating}</div>
-              <div className="text-xs text-gray-400">{listing.reviews?.length} reviews</div>
-            </div>
-          )}
-        </div>
 
-        <div className="flex items-center justify-between pt-3 border-t border-gray-50">
-          {available ? (
-            <div>
-              <div className="text-lg font-extrabold text-indigo-600">{pricing.formatted}</div>
-              <div className="text-xs text-gray-400">{pricing.currency} max</div>
+          {/* Title */}
+          <h3 className="font-bold text-white leading-snug mb-2 line-clamp-2 group-hover:text-violet-300 transition-colors">
+            {listing.title}
+          </h3>
+
+          {/* Category + delivery */}
+          <p className="text-xs text-slate-400 mb-3">
+            {listing.category} · {listing.delivery_days}d delivery
+          </p>
+
+          {/* Engagement type badges */}
+          {engagements.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {engagements.map(e => {
+                const b = ENGAGE_BADGES[e]
+                return b ? <span key={e} className={b.cls}>{b.label}</span> : null
+              })}
             </div>
-          ) : (
-            <div className="text-xs text-gray-400">Not in {userCountry}</div>
           )}
-          <div className="text-xs text-gray-400 text-right">
-            🕐 {listing.delivery_days}d<br />delivery
+
+          {/* Tags */}
+          {listing.tags && listing.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1 mb-4">
+              {listing.tags.slice(0,4).map(t => (
+                <span key={t} className="text-xs px-2 py-0.5 rounded-full bg-violet-900/40 text-violet-300 border border-violet-700/30">
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-auto">
+            {/* Price */}
+            {listing.price_local && listing.local_currency ? (
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="card-price">{listing.local_currency} {Math.round(listing.price_local).toLocaleString()}</span>
+                  <div className="text-xs text-slate-500 mt-0.5">PPP-adjusted price</div>
+                </div>
+                <span className="text-xs text-slate-400 bg-white/5 px-2.5 py-1 rounded-full border border-white/10">
+                  {listing.available_countries.length} markets
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-slate-400">Select country to see price</div>
+                <span className="text-xs text-slate-400 bg-white/5 px-2.5 py-1 rounded-full border border-white/10">
+                  {listing.available_countries.length} markets
+                </span>
+              </div>
+            )}
+
+            {listing.featured && (
+              <div className="mt-2 text-xs text-amber-300 font-semibold flex items-center gap-1">
+                <span>⭐</span> Featured listing
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -3,232 +3,194 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { COUNTRIES, CATEGORY_META, CATEGORY_BASE_PRICES, getMaxPrice } from '@/lib/ppp'
-import type { UserRow } from '@/types/database'
+import { COUNTRIES, CATEGORY_META } from '@/lib/ppp'
 
-const CATEGORIES = Object.keys(CATEGORY_META)
+const ENGAGEMENT_OPTIONS = ['Freelance', 'Part-time', 'Long-term']
+const ALL_TAGS = ['Python', 'Design', 'SEO', 'React', 'Video', 'Writing', 'AI', 'Figma', 'Canva', 'Excel', 'WordPress', 'Node.js', 'Branding', 'TikTok', 'YouTube']
 
 export default function SellPage() {
   const router = useRouter()
   const supabase = createClient()
-  const [user, setUser] = useState<UserRow | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [step, setStep] = useState(1)
+
+  const [title, setTitle] = useState('')
+  const [category, setCategory] = useState('')
+  const [description, setDescription] = useState('')
+  const [deliveryDays, setDeliveryDays] = useState(3)
+  const [selectedCountries, setSelectedCountries] = useState<string[]>(['India'])
+  const [selectedEngagements, setSelectedEngagements] = useState<string[]>(['Freelance'])
+  const [selectedTags, setSelectedTags] = useState<string[]>([])
+  const [customTag, setCustomTag] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [form, setForm] = useState({
-    title: '', category: '', description: '',
-    portfolio: ['', '', ''],
-    countries: [] as string[],
-    deliveryDays: 3,
-    tags: '',
-  })
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!session) { router.push('/login?redirect=/sell'); return }
-      const { data } = await supabase.from('users').select('*').eq('id', session.user.id).single()
-      setUser(data)
-      setLoading(false)
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) router.push('/login?redirect=/sell')
     })
   }, [])
 
-  const set = (k: string, v: any) => setForm(p => ({ ...p, [k]: v }))
-  const toggleCountry = (c: string) =>
-    set('countries', form.countries.includes(c) ? form.countries.filter(x => x !== c) : [...form.countries, c])
+  const toggleCountry = (c: string) => {
+    setSelectedCountries(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])
+  }
+  const toggleEngagement = (e: string) => {
+    setSelectedEngagements(prev => prev.includes(e) ? prev.filter(x => x !== e) : [...prev, e])
+  }
+  const toggleTag = (t: string) => {
+    setSelectedTags(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t])
+  }
+  const addCustomTag = () => {
+    const t = customTag.trim()
+    if (t && !selectedTags.includes(t)) setSelectedTags(prev => [...prev, t])
+    setCustomTag('')
+  }
 
-  const canNext1 = form.category && form.title.trim() && form.description.trim()
-  const canNext2 = form.countries.length > 0
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    if (!title || !category || !description) { setError('Please fill in all required fields.'); return }
+    if (selectedCountries.length === 0) { setError('Select at least one country.'); return }
+    if (selectedEngagements.length === 0) { setError('Select at least one engagement type.'); return }
 
-  const handleSubmit = async () => {
-    if (!user) return
     setSubmitting(true)
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) { router.push('/login'); return }
 
-    const { data: listing, error } = await supabase
-      .from('listings')
-      .insert({
-        seller_id: user.id,
-        title: form.title,
-        category: form.category,
-        description: form.description,
-        delivery_days: form.deliveryDays,
-        available_countries: form.countries,
-        tags: form.tags.split(',').map(t => t.trim()).filter(Boolean),
-        is_active: true,
-        featured: false,
-      })
-      .select()
-      .single()
+    // Ensure user profile exists
+    await supabase.from('users').upsert({
+      id: session.user.id,
+      email: session.user.email!,
+      name: session.user.user_metadata?.name ?? session.user.email!.split('@')[0],
+      country: selectedCountries[0],
+      avatar_url: '🌟',
+    })
 
-    if (error || !listing) { setSubmitting(false); alert('Error creating listing. Please try again.'); return }
-
-    // Insert portfolio items
-    const portfolioItems = form.portfolio.filter(Boolean).map(title => ({
-      listing_id: listing.id,
+    const { error: insertError } = await supabase.from('listings').insert({
+      seller_id: session.user.id,
       title,
-      type: 'link' as const,
-    }))
-    if (portfolioItems.length) {
-      await supabase.from('portfolio_items').insert(portfolioItems)
-    }
+      category,
+      description,
+      delivery_days: deliveryDays,
+      available_countries: selectedCountries,
+      engagement_types: selectedEngagements,
+      tags: selectedTags,
+      is_active: true,
+      featured: false,
+    })
 
+    if (insertError) { setError(insertError.message); setSubmitting(false); return }
     router.push('/dashboard?listing=created')
   }
 
-  if (loading) return <div className="text-center py-20 text-gray-400">Loading...</div>
+  const cats = Object.entries(CATEGORY_META)
+  const countriesList = Object.keys(COUNTRIES)
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8">
-      <h1 className="text-2xl font-black text-gray-900 mb-1">List your skill</h1>
-      <p className="text-gray-500 mb-7">Reach global buyers at PPP-fair prices</p>
+    <div className="min-h-screen pt-24 pb-20 px-4">
+      <div className="max-w-2xl mx-auto">
+        <h1 className="text-3xl font-black text-white mb-1">List your skill</h1>
+        <p className="text-slate-400 text-sm mb-8">Reach buyers across 150+ countries at PPP-adjusted prices.</p>
 
-      {/* Step bar */}
-      <div className="flex items-center mb-2">
-        {[1, 2, 3].map((s, i) => (
-          <span key={s} className="flex items-center flex-1">
-            <span className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold transition-all ${step >= s ? 'bg-indigo-600 text-white shadow-md' : 'bg-gray-100 text-gray-400'}`}>
-              {step > s ? '✓' : s}
-            </span>
-            {i < 2 && <span className={`flex-1 h-1 mx-1 rounded transition-all ${step > s ? 'bg-indigo-600' : 'bg-gray-100'}`} />}
-          </span>
-        ))}
-      </div>
-      <div className="flex justify-between text-xs text-gray-400 mb-8 px-1">
-        <span>Skill details</span><span>Target markets</span><span>Review & publish</span>
-      </div>
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Title */}
+          <div className="glass p-5">
+            <label className="label-dark">Service title *</label>
+            <input className="input-dark" placeholder="e.g. Professional YouTube Video Editing"
+              value={title} onChange={e => setTitle(e.target.value)} required maxLength={100} />
+          </div>
 
-      {/* STEP 1 */}
-      {step === 1 && (
-        <div className="space-y-5">
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-3">Choose a category *</label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {CATEGORIES.map(c => {
-                const d = CATEGORY_META[c]
+          {/* Category */}
+          <div className="glass p-5">
+            <label className="label-dark">Category *</label>
+            <div className="grid grid-cols-2 gap-2 mt-1">
+              {cats.map(([key, meta]) => (
+                <button type="button" key={key}
+                  onClick={() => setCategory(key)}
+                  className={`flex items-center gap-2 p-3 rounded-xl text-sm font-semibold transition border ${category === key ? 'border-violet-500 bg-violet-600/20 text-violet-300' : 'border-white/10 bg-white/5 text-slate-300 hover:border-violet-500/40'}`}>
+                  <span>{meta.icon}</span> {key}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Engagement types */}
+          <div className="glass p-5">
+            <label className="label-dark">Engagement type *</label>
+            <div className="flex gap-3 mt-1 flex-wrap">
+              {ENGAGEMENT_OPTIONS.map(e => (
+                <button type="button" key={e}
+                  onClick={() => toggleEngagement(e)}
+                  className={`px-4 py-2 rounded-full text-xs font-bold transition border ${selectedEngagements.includes(e) ? 'bg-violet-600 border-violet-500 text-white' : 'border-white/10 bg-white/5 text-slate-300 hover:border-violet-500/40'}`}>
+                  {e === 'Freelance' ? '⚡' : e === 'Part-time' ? '🕐' : '🔗'} {e}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-slate-500 mt-2">Select all that apply. Buyers can filter by this.</p>
+          </div>
+
+          {/* Description */}
+          <div className="glass p-5">
+            <label className="label-dark">Description *</label>
+            <textarea className="input-dark resize-none" rows={5}
+              placeholder="Describe what you offer, your experience, what the buyer will receive, and any requirements..."
+              value={description} onChange={e => setDescription(e.target.value)} required />
+            <div className="text-xs text-slate-500 mt-1">{description.length} / 1000 chars</div>
+          </div>
+
+          {/* Delivery days */}
+          <div className="glass p-5">
+            <label className="label-dark">Delivery time</label>
+            <div className="flex items-center gap-4 mt-2">
+              <input type="range" min={1} max={30} value={deliveryDays}
+                onChange={e => setDeliveryDays(Number(e.target.value))}
+                className="flex-1 accent-violet-500" />
+              <span className="text-white font-bold w-16 text-right">{deliveryDays} {deliveryDays === 1 ? 'day' : 'days'}</span>
+            </div>
+          </div>
+
+          {/* Tags */}
+          <div className="glass p-5">
+            <label className="label-dark">Tags</label>
+            <div className="flex flex-wrap gap-2 mt-2 mb-3">
+              {ALL_TAGS.map(t => (
+                <button type="button" key={t} onClick={() => toggleTag(t)}
+                  className={`text-xs px-3 py-1 rounded-full font-semibold transition border ${selectedTags.includes(t) ? 'bg-violet-600 border-violet-500 text-white' : 'border-white/10 bg-white/5 text-slate-300 hover:border-violet-500/40'}`}>
+                  {t}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input className="input-dark flex-1" placeholder="Add custom tag..." value={customTag}
+                onChange={e => setCustomTag(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addCustomTag())} />
+              <button type="button" onClick={addCustomTag} className="btn-secondary px-4 py-2 text-xs">Add</button>
+            </div>
+          </div>
+
+          {/* Countries */}
+          <div className="glass p-5">
+            <label className="label-dark">Available in ({selectedCountries.length} selected)</label>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5 mt-2 max-h-60 overflow-y-auto pr-1">
+              {countriesList.map(c => {
+                const info = COUNTRIES[c]
                 return (
-                  <button key={c} onClick={() => set('category', c)}
-                    className={`p-4 rounded-2xl border-2 text-left transition ${form.category === c ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
-                    <span className="text-2xl block mb-1.5">{d.icon}</span>
-                    <span className="font-bold text-sm text-gray-800 block">{c}</span>
-                    <span className="text-xs text-gray-400">Max ${CATEGORY_BASE_PRICES[c]} in USA</span>
+                  <button type="button" key={c} onClick={() => toggleCountry(c)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition border ${selectedCountries.includes(c) ? 'border-violet-500 bg-violet-600/20 text-violet-300' : 'border-white/10 bg-white/5 text-slate-400 hover:border-violet-500/30'}`}>
+                    {info.flag} {c}
                   </button>
                 )
               })}
             </div>
+            <button type="button" onClick={() => setSelectedCountries(countriesList)}
+              className="text-xs text-violet-400 hover:text-violet-300 mt-2 transition">Select all</button>
           </div>
 
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1.5">Listing title *</label>
-            <input value={form.title} onChange={e => set('title', e.target.value)}
-              placeholder="e.g. Professional YouTube Video Editing"
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
-          </div>
+          {error && <div className="glass border border-red-500/30 text-red-300 px-5 py-3 text-sm rounded-2xl">{error}</div>}
 
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1.5">Description *</label>
-            <textarea value={form.description} onChange={e => set('description', e.target.value)} rows={4}
-              placeholder="Describe your offering, process, and what makes your work stand out..."
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none" />
-          </div>
-
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1.5">Portfolio examples</label>
-            {form.portfolio.map((p, i) => (
-              <input key={i} value={p}
-                onChange={e => { const n = [...form.portfolio]; n[i] = e.target.value; set('portfolio', n) }}
-                placeholder={`Example ${i + 1} — e.g. "Brand redesign for a fintech startup"`}
-                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 mb-2" />
-            ))}
-          </div>
-
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1.5">Tags (comma separated)</label>
-            <input value={form.tags} onChange={e => set('tags', e.target.value)}
-              placeholder="e.g. YouTube, Color Grading, Captions"
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
-          </div>
-
-          <button onClick={() => canNext1 && setStep(2)}
-            className={`w-full py-3.5 rounded-xl font-bold text-white transition ${canNext1 ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}>
-            Continue →
+          <button type="submit" disabled={submitting} className="btn-primary w-full py-3.5 text-base font-bold disabled:opacity-60">
+            {submitting ? 'Publishing...' : '🚀 Publish Listing'}
           </button>
-        </div>
-      )}
-
-      {/* STEP 2 */}
-      {step === 2 && (
-        <div className="space-y-5">
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1">Select countries to sell in</label>
-            <p className="text-xs text-gray-400 mb-4">Your price will be capped at the PPP max for each country</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-              {Object.entries(COUNTRIES).map(([c, d]) => {
-                const p = form.category ? getMaxPrice(form.category, c) : null
-                const sel = form.countries.includes(c)
-                return (
-                  <button key={c} onClick={() => toggleCountry(c)}
-                    className={`p-3 rounded-xl border-2 text-left transition ${sel ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
-                    <div className="text-sm font-semibold text-gray-800">{d.flag} {c}</div>
-                    {p && <div className="text-xs text-indigo-500 mt-0.5 font-medium">Max {p.formatted}</div>}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          <div className="flex gap-3">
-            <button onClick={() => setStep(1)} className="flex-1 py-3 rounded-xl border border-gray-200 font-bold text-gray-600 hover:bg-gray-50 transition">← Back</button>
-            <button onClick={() => canNext2 && setStep(3)}
-              className={`flex-1 py-3 rounded-xl font-bold text-white transition ${canNext2 ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}>
-              Continue →
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* STEP 3 */}
-      {step === 3 && (
-        <div className="space-y-5">
-          <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-5">
-            <h3 className="font-bold text-indigo-900 mb-3">Price caps for your listing</h3>
-            <div className="space-y-2">
-              {form.countries.map(c => {
-                const p = getMaxPrice(form.category, c)
-                return (
-                  <div key={c} className="flex items-center justify-between text-sm">
-                    <span className="text-gray-700">{COUNTRIES[c].flag} {c}</span>
-                    <span className="font-extrabold text-indigo-600">{p.formatted} {p.currency}</span>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1.5">Delivery time (days)</label>
-            <input type="number" min="1" max="60" value={form.deliveryDays}
-              onChange={e => set('deliveryDays', parseInt(e.target.value) || 1)}
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
-          </div>
-
-          <div className="bg-gray-50 rounded-2xl p-5 border border-gray-100">
-            <h3 className="font-bold text-gray-800 mb-3">Listing summary</h3>
-            <div className="text-sm text-gray-600 space-y-1.5">
-              <div><span className="font-semibold text-gray-800">Title:</span> {form.title}</div>
-              <div><span className="font-semibold text-gray-800">Category:</span> {CATEGORY_META[form.category]?.icon} {form.category}</div>
-              <div><span className="font-semibold text-gray-800">Markets:</span> {form.countries.map(c => COUNTRIES[c].flag).join(' ')} ({form.countries.length})</div>
-              <div><span className="font-semibold text-gray-800">Delivery:</span> {form.deliveryDays} days</div>
-            </div>
-          </div>
-
-          <div className="flex gap-3">
-            <button onClick={() => setStep(2)} className="flex-1 py-3 rounded-xl border border-gray-200 font-bold text-gray-600 hover:bg-gray-50 transition">← Back</button>
-            <button onClick={handleSubmit} disabled={submitting}
-              className="flex-1 py-3 rounded-xl bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-extrabold transition">
-              {submitting ? 'Publishing...' : '🚀 Publish Listing'}
-            </button>
-          </div>
-        </div>
-      )}
+        </form>
+      </div>
     </div>
   )
 }

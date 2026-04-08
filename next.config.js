@@ -1,19 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  typescript: {
-    ignoreBuildErrors: true,
-  },
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
+  typescript: { ignoreBuildErrors: true },
+  eslint: { ignoreDuringBuilds: true },
   images: {
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: '*.supabase.co',
-        pathname: '/storage/v1/object/public/**',
-      },
-    ],
+    domains: ['lh3.googleusercontent.com', 'avatars.githubusercontent.com'],
   },
 }
 
