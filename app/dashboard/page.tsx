@@ -4,109 +4,128 @@ import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { COUNTRIES, CATEGORY_META, getMaxPrice } from '@/lib/ppp'
-import type { UserRow, OrderRow, ListingRow } from '@/types/database'
-
-type OrderWithListing = OrderRow & { listings: Pick<ListingRow, 'title' | 'category'> }
-type ListingWithOrders = ListingRow & { orders: { id: string }[] }
 
 function DashboardContent() {
   const router = useRouter()
-  const searchParams = useSearchParams()
+  const params = useSearchParams()
   const supabase = createClient()
 
-  const [user, setUser] = useState<UserRow | null>(null)
-  const [orders, setOrders] = useState<OrderWithListing[]>([])
-  const [listings, setListings] = useState<ListingWithOrders[]>([])
-  const [tab, setTab] = useState<'purchases' | 'listings'>('purchases')
+  const [user, setUser] = useState<any>(null)
+  const [orders, setOrders] = useState<any[]>([])
+  const [listings, setListings] = useState<any[]>([])
+  const [tab, setTab] = useState<'purchases' | 'listings' | 'profile'>('purchases')
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [saveMsg, setSaveMsg] = useState('')
 
-  const showSuccess = searchParams.get('order') === 'success'
-  const listingCreated = searchParams.get('listing') === 'created'
+  // Profile edit fields
+  const [name, setName] = useState('')
+  const [username, setUsername] = useState('')
+  const [bio, setBio] = useState('')
+  const [country, setCountry] = useState('India')
+  const [mobile, setMobile] = useState('')
+  const [calendlyUrl, setCalendlyUrl] = useState('')
+  const [avatar, setAvatar] = useState('')
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.push('/login?redirect=/dashboard'); return }
-      const [{ data: userData }, { data: ordersData }, { data: listingsData }] = await Promise.all([
+      const [{ data: u }, { data: o }, { data: l }] = await Promise.all([
         supabase.from('users').select('*').eq('id', session.user.id).single(),
-        supabase.from('orders').select('*, listings(title, category)').eq('buyer_id', session.user.id).order('created_at', { ascending: false }),
-        supabase.from('listings').select('*, orders(id)').eq('seller_id', session.user.id).order('created_at', { ascending: false }),
+        supabase.from('orders').select('*, listings(title,category)').eq('buyer_id', session.user.id).order('created_at', { ascending: false }),
+        supabase.from('listings').select('*, orders(id), listing_views(id)').eq('seller_id', session.user.id).order('created_at', { ascending: false }),
       ])
-      setUser(userData)
-      setOrders((ordersData as OrderWithListing[]) ?? [])
-      setListings((listingsData as ListingWithOrders[]) ?? [])
+      setUser({ ...u, id: session.user.id })
+      setOrders(o ?? [])
+      setListings(l ?? [])
+      // Populate edit fields
+      setName(u?.name ?? '')
+      setUsername(u?.username ?? '')
+      setBio(u?.bio ?? '')
+      setCountry(u?.country ?? 'India')
+      setMobile(u?.mobile ?? '')
+      setCalendlyUrl(u?.calendly_url ?? '')
+      setAvatar(u?.avatar_url ?? '🌟')
       setLoading(false)
     })
   }, [])
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center text-violet-300 animate-pulse pt-20">Loading your dashboard...</div>
+  const saveProfile = async () => {
+    setSaving(true)
+    await supabase.from('users').update({
+      name, username: username.toLowerCase().replace(/[^a-z0-9_]/g, ''),
+      bio, country, mobile, calendly_url: calendlyUrl, avatar_url: avatar,
+    }).eq('id', user.id)
+    setSaveMsg('Profile saved!')
+    setSaving(false)
+    setTimeout(() => setSaveMsg(''), 3000)
+  }
+
+  if (loading) return <div className="min-h-screen flex items-center justify-center text-violet-300 animate-pulse pt-20">Loading...</div>
   if (!user) return null
 
-  const countryFlag = COUNTRIES[user.country]?.flag ?? ''
+  const AVATARS = ['🌟', '🚀', '🎯', '🦄', '🔥', '💡', '🎨', '🎵', '🏄', '🧠', '🌈', '⚡']
 
   return (
-    <div className="min-h-screen pt-24 pb-20 px-4">
+    <div className="min-h-screen pt-20 pb-20 px-4">
       <div className="max-w-4xl mx-auto">
-        {showSuccess && (
-          <div className="glass border border-green-500/30 text-green-300 rounded-2xl p-4 mb-6 text-sm font-semibold">
-            🎉 Order placed successfully! The seller will be in touch soon.
-          </div>
+        {params.get('order') === 'success' && (
+          <div className="glass border border-green-500/30 text-green-300 rounded-2xl p-4 mb-5 text-sm">🎉 Payment successful! The seller will be in touch.</div>
         )}
-        {listingCreated && (
-          <div className="glass border border-violet-500/30 text-violet-300 rounded-2xl p-4 mb-6 text-sm font-semibold">
-            🚀 Your listing is live! Buyers in your selected countries can now find and hire you.
-          </div>
+        {params.get('listing') === 'created' && (
+          <div className="glass border border-violet-500/30 text-violet-300 rounded-2xl p-4 mb-5 text-sm">🚀 Listing is live! Buyers across 25 countries can now find you.</div>
         )}
 
-        {/* Profile card */}
-        <div className="glass p-6 mb-7 flex items-center gap-5 bg-gradient-to-br from-violet-900/40 to-cyan-900/20">
+        {/* Profile header */}
+        <div className="glass p-5 mb-6 flex items-center gap-4">
           <span className="text-5xl">{user.avatar_url || '👤'}</span>
-          <div>
-            <h1 className="text-xl font-black text-white">{user.name}</h1>
-            <div className="text-violet-300 text-sm">{user.email}</div>
-            <div className="text-slate-400 text-sm">{countryFlag} {user.country}</div>
+          <div className="flex-1 min-w-0">
+            <div className="font-black text-white text-lg">{user.name}</div>
+            {user.username && <div className="text-violet-400 text-sm">@{user.username}</div>}
+            <div className="text-slate-400 text-xs mt-0.5">{COUNTRIES[user.country]?.flag} {user.country}</div>
+            {user.bio && <div className="text-slate-400 text-xs mt-1 line-clamp-2">{user.bio}</div>}
           </div>
-          <div className="ml-auto text-right">
-            <div className="text-3xl font-black gradient-text">{orders.length}</div>
-            <div className="text-xs text-slate-400">Purchases</div>
-            <div className="text-3xl font-black gradient-text mt-2">{listings.length}</div>
-            <div className="text-xs text-slate-400">Listings</div>
+          <div className="text-right shrink-0 space-y-1">
+            <div className="text-xs text-slate-500">Purchases</div>
+            <div className="text-2xl font-black gradient-text">{orders.length}</div>
+            <div className="text-xs text-slate-500 mt-2">Listings</div>
+            <div className="text-2xl font-black gradient-text">{listings.length}</div>
           </div>
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-2 mb-6">
-          {[['purchases', '🛒 My Purchases'], ['listings', '📦 My Listings']].map(([t, l]) => (
+        <div className="flex gap-2 mb-6 flex-wrap">
+          {[['purchases','🛒 Purchases'], ['listings','📦 My Skills'], ['profile','⚙️ Edit Profile']].map(([t, l]) => (
             <button key={t} onClick={() => setTab(t as any)}
-              className={`px-5 py-2 rounded-full text-sm font-semibold transition ${tab === t ? 'bg-violet-600 text-white' : 'glass text-slate-300 hover:text-violet-300'}`}>
+              className={`px-4 py-2 rounded-full text-xs font-bold transition ${tab === t ? 'bg-violet-600 text-white' : 'glass text-slate-300 hover:text-violet-300'}`}>
               {l}
             </button>
           ))}
         </div>
 
+        {/* PURCHASES TAB */}
         {tab === 'purchases' && (
           orders.length === 0 ? (
-            <div className="glass text-center py-20">
-              <div className="text-5xl mb-3">🛒</div>
+            <div className="glass text-center py-16">
+              <div className="text-4xl mb-3">🛒</div>
               <div className="font-semibold text-white mb-1">No purchases yet</div>
-              <a href="/browse" className="mt-2 inline-block text-sm text-violet-400 hover:underline">Browse skills</a>
+              <a href="/browse" className="text-sm text-violet-400 hover:underline">Browse skills →</a>
             </div>
           ) : (
-            <div className="space-y-4">
-              {orders.map(order => {
-                const cat = CATEGORY_META[order.listings?.category ?? '']
+            <div className="space-y-3">
+              {orders.map(o => {
+                const cat = CATEGORY_META[o.listings?.category ?? '']
                 return (
-                  <div key={order.id} className="glass p-5 flex items-center gap-4">
-                    <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${cat?.grad ?? 'from-violet-500 to-cyan-500'} flex items-center justify-center text-2xl shrink-0`}>
-                      {cat?.icon ?? '📦'}
-                    </div>
+                  <div key={o.id} className="glass p-4 flex items-center gap-3">
+                    <span className="text-2xl">{cat?.icon ?? '📦'}</span>
                     <div className="flex-1 min-w-0">
-                      <div className="font-bold text-white truncate">{order.listings?.title}</div>
-                      <div className="text-sm text-slate-400">{order.listings?.category}</div>
+                      <div className="font-semibold text-white text-sm truncate">{o.listings?.title}</div>
+                      <div className="text-xs text-slate-400">{o.listings?.category}</div>
                     </div>
                     <div className="text-right shrink-0">
-                      <div className="card-price">{order.local_currency} {Math.round(order.price_local).toLocaleString()}</div>
-                      <div className={`text-xs font-semibold mt-0.5 ${order.status === 'paid' || order.status === 'delivered' ? 'text-green-400' : 'text-yellow-400'}`}>
-                        {order.status === 'paid' ? '✓ Paid' : order.status === 'delivered' ? '✓ Delivered' : '⏳ Pending'}
+                      <div className="card-price text-sm">{o.local_currency} {Math.round(o.price_local).toLocaleString()}</div>
+                      <div className={`text-xs mt-0.5 font-semibold ${o.status === 'paid' ? 'text-green-400' : 'text-yellow-400'}`}>
+                        {o.status === 'paid' ? '✓ Paid' : '⏳ Pending'}
                       </div>
                     </div>
                   </div>
@@ -116,59 +135,152 @@ function DashboardContent() {
           )
         )}
 
+        {/* LISTINGS + INSIGHTS TAB */}
         {tab === 'listings' && (
           <div>
             <div className="mb-4">
-              <a href="/sell" className="btn-primary text-sm px-5 py-2.5 inline-block">+ Add new listing</a>
+              <a href="/sell" className="btn-primary text-xs px-5 py-2.5 inline-block">+ New Listing</a>
             </div>
             {listings.length === 0 ? (
-              <div className="glass text-center py-20">
-                <div className="text-5xl mb-3">📦</div>
+              <div className="glass text-center py-16">
+                <div className="text-4xl mb-3">📦</div>
                 <div className="font-semibold text-white mb-1">No listings yet</div>
-                <div className="text-sm text-slate-400">Share your skills with the world</div>
+                <div className="text-xs text-slate-400">Share a skill and start earning globally</div>
               </div>
             ) : (
               <div className="space-y-4">
                 {listings.map(l => {
                   const cat = CATEGORY_META[l.category]
-                  const engagements: string[] = (l as any).engagement_types ?? []
+                  const views   = l.listing_views?.length ?? 0
+                  const sales   = l.orders?.length ?? 0
+                  const ctr     = views > 0 ? ((sales / views) * 100).toFixed(1) : '0.0'
+                  const engage: string[] = l.engagement_types ?? []
                   return (
                     <div key={l.id} className="glass p-5">
-                      <div className="flex items-start gap-3 mb-3">
-                        <span className="text-2xl">{cat?.icon}</span>
-                        <div className="flex-1">
-                          <div className="font-bold text-white">{l.title}</div>
-                          <div className="text-sm text-slate-400">{l.category} · {l.available_countries.length} markets · {l.delivery_days}d delivery</div>
-                          <div className="text-xs text-slate-500 mt-0.5">{l.orders?.length ?? 0} orders received</div>
-                          {engagements.length > 0 && (
-                            <div className="flex gap-1.5 mt-2 flex-wrap">
-                              {engagements.map(e => (
-                                <span key={e} className={e === 'Freelance' ? 'badge-freelance' : e === 'Part-time' ? 'badge-parttime' : 'badge-longterm'}>
-                                  {e}
-                                </span>
+                      <div className="flex items-start gap-3 mb-4">
+                        <span className="text-3xl">{cat?.icon ?? '📦'}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-bold text-white text-sm truncate">{l.title}</div>
+                          <div className="text-xs text-slate-400 mt-0.5">{l.category} · {l.delivery_days}d delivery · {l.available_countries?.length ?? 0} markets</div>
+                          {engage.length > 0 && (
+                            <div className="flex gap-1.5 mt-1.5 flex-wrap">
+                              {engage.map((e: string) => (
+                                <span key={e} className={e==='Freelance'?'badge-freelance':e==='Part-time'?'badge-parttime':'badge-longterm'}>{e}</span>
                               ))}
                             </div>
                           )}
                         </div>
-                        <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${l.is_active ? 'bg-green-900/30 text-green-400' : 'bg-white/5 text-slate-400'}`}>
+                        <span className={`text-xs px-2.5 py-1 rounded-full font-semibold shrink-0 ${l.is_active?'bg-green-900/30 text-green-400':'bg-white/5 text-slate-400'}`}>
                           {l.is_active ? '● Live' : '○ Draft'}
                         </span>
                       </div>
-                      <div className="flex flex-wrap gap-2">
-                        {l.available_countries.map(c => {
+
+                      {/* Insights bar */}
+                      <div className="grid grid-cols-4 gap-2">
+                        {[
+                          { label: 'Views',       val: views,    icon: '👁️' },
+                          { label: 'Sales',        val: sales,    icon: '🛒' },
+                          { label: 'Conversion',  val: `${ctr}%`, icon: '📈' },
+                          { label: 'Countries',   val: l.available_countries?.length ?? 0, icon: '🌍' },
+                        ].map(s => (
+                          <div key={s.label} className="bg-white/5 rounded-xl p-3 text-center">
+                            <div className="text-base mb-0.5">{s.icon}</div>
+                            <div className="text-white font-black text-sm">{s.val}</div>
+                            <div className="text-slate-500 text-[10px]">{s.label}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Price breakdown */}
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {(l.available_countries ?? []).slice(0, 6).map((c: string) => {
                           const p = getMaxPrice(l.category, c)
                           return (
-                            <span key={c} className="text-xs px-2.5 py-1 rounded-full bg-violet-900/30 text-violet-300 border border-violet-700/20">
-                              {COUNTRIES[c]?.flag} {c}: {p.formatted}
+                            <span key={c} className="text-xs px-2 py-0.5 rounded-full bg-violet-900/30 text-violet-300 border border-violet-700/20">
+                              {COUNTRIES[c]?.flag} {p.formatted}
                             </span>
                           )
                         })}
+                        {(l.available_countries?.length ?? 0) > 6 && (
+                          <span className="text-xs px-2 py-0.5 text-slate-500">+{l.available_countries.length - 6} more</span>
+                        )}
                       </div>
                     </div>
                   )
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {/* PROFILE EDIT TAB */}
+        {tab === 'profile' && (
+          <div className="glass p-6 space-y-5">
+            <h2 className="font-black text-white text-base mb-4">Edit your profile</h2>
+
+            {/* Avatar picker */}
+            <div>
+              <label className="label-dark">Avatar emoji</label>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {AVATARS.map(a => (
+                  <button key={a} type="button" onClick={() => setAvatar(a)}
+                    className={`text-2xl p-2 rounded-xl transition ${avatar === a ? 'bg-violet-600/40 ring-2 ring-violet-500' : 'bg-white/5 hover:bg-white/10'}`}>
+                    {a}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <label className="label-dark">Display name</label>
+                <input className="input-dark" value={name} onChange={e => setName(e.target.value)} placeholder="Your name" />
+              </div>
+              <div>
+                <label className="label-dark">Username</label>
+                <div className="flex items-center input-dark pr-0 overflow-hidden">
+                  <span className="text-slate-500 px-3">@</span>
+                  <input className="flex-1 bg-transparent outline-none py-0 px-0 text-slate-200 placeholder:text-slate-600"
+                    value={username} onChange={e => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                    placeholder="yourname" maxLength={30} />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="label-dark">Bio <span className="text-slate-600 font-normal">(shown on your listings)</span></label>
+              <textarea className="input-dark resize-none" rows={3} value={bio}
+                onChange={e => setBio(e.target.value.slice(0, 300))} placeholder="Tell buyers about yourself..." />
+              <div className="text-xs text-slate-600 mt-1">{bio.length}/300</div>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <label className="label-dark">Country</label>
+                <select className="input-dark" value={country} onChange={e => setCountry(e.target.value)}>
+                  {Object.entries(COUNTRIES).map(([c, i]) => (
+                    <option key={c} value={c} style={{ background: '#1a0533' }}>{i.flag} {c}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label-dark">Mobile (with country code)</label>
+                <input className="input-dark" value={mobile} onChange={e => setMobile(e.target.value)} placeholder="+91 98765 43210" type="tel" />
+              </div>
+            </div>
+
+            <div>
+              <label className="label-dark">Calendly link <span className="text-slate-600 font-normal">(optional — lets buyers book meetings with you)</span></label>
+              <input className="input-dark" value={calendlyUrl} onChange={e => setCalendlyUrl(e.target.value)}
+                placeholder="https://calendly.com/yourname" type="url" />
+              <p className="text-xs text-slate-600 mt-1">Create a free Calendly at calendly.com → share the link here.</p>
+            </div>
+
+            {saveMsg && <div className="text-green-400 text-sm font-semibold">✓ {saveMsg}</div>}
+
+            <button onClick={saveProfile} disabled={saving} className="btn-primary px-8 py-2.5 text-sm disabled:opacity-60">
+              {saving ? 'Saving...' : 'Save profile'}
+            </button>
           </div>
         )}
       </div>
@@ -178,7 +290,7 @@ function DashboardContent() {
 
 export default function DashboardPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-violet-300 animate-pulse">Loading dashboard...</div>}>
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-violet-300 animate-pulse">Loading...</div>}>
       <DashboardContent />
     </Suspense>
   )
